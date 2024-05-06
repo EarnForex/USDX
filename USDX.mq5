@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                                   USDX Indicator |
-//|                                 Copyright © 2012-2022, EarnForex |
+//|                                 Copyright © 2012-2024, EarnForex |
 //|                                        https://www.earnforex.com |
 //+------------------------------------------------------------------+
-#property copyright "www.EarnForex.com, 2012-2022"
+#property copyright "www.EarnForex.com, 2012-2024"
 #property link      "https://www.earnforex.com/metatrader-indicators/USDX/"
-#property version   "1.02"
+#property version   "1.03"
 
 #property description "USDX - indicator of the US Dollar Index."
 #property description "Displays a USDX chart in a separate window of the current chart."
@@ -33,7 +33,7 @@
 
 input int MaxBars = 500; // MaxBars (Set to 0 to disable)
 input string IndexPairs = "EURUSD, USDJPY, GBPUSD, USDCAD, USDSEK, USDCHF"; // IndexPairs (Update only currency pairs' names if they are different from your broker's)
-input string IndexCoefficients = "-0.576, 0.136, -0.119, 0.091, 0.036, 0.042"; // IndexCoefficients (Do not change for USDX)
+input string IndexCoefficients = "-0.576, 0.136, -0.119, 0.091, 0.042, 0.036"; // IndexCoefficients (Do not change for USDX)
 input double IndexInitialValue = 50.14348112; // IndexInitialValue (Do not change for USDX)
 input int MA_Period1 = 13; // MA_Period1 (Set to 0 to disable this MA)
 input int MA_Period2 = 17; // MA_Period2 (Set to 0 to disable this MA)
@@ -62,8 +62,10 @@ bool FirstRun[];
 CPairData PairData[];
 int PairsLastBars[];
 int Pairs_k[];
+int Pairs_NotFound[]; // 0 - OK, 1 - first failure, 2 - final failure.
 
 int LastBars = 0, RatesTotal = 0, LastMA = 0;
+bool AllFound = true;
 
 // Gets pair names and coefficients out of the input parameters and creates the respective arrays.
 int InitializePairs()
@@ -89,11 +91,13 @@ int InitializePairs()
     ArrayResize(Pairs, count);
     ArrayResize(PairsLastBars, count);
     ArrayResize(Pairs_k, count);
+    ArrayResize(Pairs_NotFound, count);
     ArrayResize(Coefficients, count);
     ArrayResize(PairData, count);
     ArrayResize(FirstRun, count);
     ArrayInitialize(FirstRun, true);
     ArrayInitialize(PairsLastBars, 0);
+    ArrayInitialize(Pairs_NotFound, 0);
 
     n = 0;
     coef_n = 0;
@@ -111,7 +115,15 @@ int InitializePairs()
         StringTrimRight(Pairs[i]);
         Print(Pairs[i], ": ", Coefficients[i]);
         if (!(bool)SymbolInfoInteger(Pairs[i], SYMBOL_SELECT)) SymbolSelect(Pairs[i], true);
-        if (!SymbolInfoDouble(Pairs[i], SYMBOL_BID)) Alert("Please add ", Pairs[i], " to your Market Watch.");
+        if (!SymbolInfoDouble(Pairs[i], SYMBOL_BID))
+        {
+            Print(Pairs[i], " not found. Could be a delay while selecting it to Market Watch. Will try again inside OnCalculate().");
+            AllFound = false;
+        }
+        else
+        {
+            Print(Pairs[i], " found.");
+        }
         prev_n = n;
         prev_coef_n = coef_n;
     }
@@ -124,19 +136,16 @@ int OnInit()
     if (StringLen(IndexPairs) == 0)
     {
         Alert("Please enter the USDX currency pairs (EUR/USD, USD/JPY, GBP/USD, USD/CAD, USD/CHF and USD/SEK) into IndexPairs input parameter. Use the currency pairs' names as they appear in your market watch.");
-        return INIT_FAILED;
     }
 
     if (StringLen(IndexCoefficients) == 0)
     {
         Alert("Please enter the the Index coefficients as coma-separated values in IndexCoefficients input parameter.");
-        return INIT_FAILED;
     }
 
-    // Can initialize only if connected to account.
-    if (AccountInfoString(ACCOUNT_CURRENCY) != "")
+    if (InitializePairs() < 0)
     {
-        if (InitializePairs() < 0) return INIT_FAILED;
+        Print("Couldn't initialize pairs.");
     }
 
     SetIndexBuffer(0, Open, INDICATOR_DATA);
@@ -171,23 +180,25 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
 {
-    // Initialization hasn't been done yet.
-    if (ArraySize(Pairs) == 0)
+    if (!AllFound) // Making sure that the Terminal has all the required currency pairs.
     {
-        if (AccountInfoString(ACCOUNT_CURRENCY) != "")
+        AllFound = true;
+        for (int i = 0; i < ArraySize(Pairs); i++)
         {
-            if (InitializePairs() < 0)
+            if (!SymbolInfoDouble(Pairs[i], SYMBOL_BID))
             {
-                return 0;
+                AllFound = false;
+                if (Pairs_NotFound[i] == 2) return 0; // Cannot calculate if one of the pairs is missing.
+                Pairs_NotFound[i]++;
+                if (Pairs_NotFound[i] == 1) Print(Pairs[i], " not found. Still waiting due to a potential delay while selecting it to Market Watch.");
+                else if (Pairs_NotFound[i] == 2) Alert(Pairs[i], " not found. Please check its naming and whether your broker offers such a pair.");
+            }
+            if ((Pairs_NotFound[i] == 1) && (AllFound)) // If this pair was missing at some point, but is now OK.
+            {
+                Print(Pairs[i], " found.");
             }
         }
-        else
-        {
-            Print("Need to be connected to an account to use this indicator.");
-            return 0;
-        }
     }
-
     RatesTotal = rates_total;
 
     int pairs_count = ArraySize(Pairs);
@@ -271,7 +282,7 @@ int OnCalculate(const int rates_total,
                     Close[j] *= MathPow(PairData[i].Close[n], Coefficients[i]);
                     break;
                 }
-                // If got to the last element without finding, the bar is mising.
+                // If got to the last element without finding, the bar is missing.
                 else if (n == 0) Open[j] = EMPTY_VALUE;
             }
         }

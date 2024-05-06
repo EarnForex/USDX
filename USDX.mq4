@@ -1,16 +1,16 @@
 //+------------------------------------------------------------------+
 //|                                                         USDX.mq4 |
-//|                                 Copyright © 2012-2022, EarnForex |
+//|                                 Copyright © 2012-2024, EarnForex |
 //|                                        https://www.earnforex.com |
 //+------------------------------------------------------------------+
-#property copyright "www.EarnForex.com, 2012-2022"
+#property copyright "www.EarnForex.com, 2012-2024"
 #property link      "https://www.earnforex.com/metatrader-indicators/USDX/"
-#property version   "1.02"
+#property version   "1.03"
 #property strict
 
 #property description "USDX - indicator of the US Dollar Index."
 #property description "Displays a USDX chart in a separate window of the current chart."
-#property description "Based on EUR/USD, USD/JPY, GBP/USD, USD/CAD, USD/CHF and USD/SEK."
+#property description "Based on EUR/USD, USD/JPY, GBP/USD, USD/CAD, USD/CHF, and USD/SEK."
 #property description "All these pairs should be added to Market Watch for indicator to work."
 #property description "Two customizable moving averages can be applied to the index."
 #property description "Can be easily modified via input parameters to calculate any currency index."
@@ -31,7 +31,7 @@
 
 input ENUM_APPLIED_PRICE USDX_PriceType = PRICE_CLOSE;
 input string IndexPairs = "EURUSD, USDJPY, GBPUSD, USDCAD, USDSEK, USDCHF"; // Update currency pairs' names only if different from your broker's.
-input string IndexCoefficients = "-0.576, 0.136, -0.119, 0.091, 0.036, 0.042"; // IndexCoefficients: Do not change for USDX.
+input string IndexCoefficients = "-0.576, 0.136, -0.119, 0.091, 0.042, 0.036"; // IndexCoefficients: Do not change for USDX.
 input double IndexInitialValue = 50.14348112; // IndexInitialValue: Do not change for USDX.
 input int MA_Period1 = 13;
 input int MA_Period2 = 17;
@@ -46,6 +46,8 @@ double MA2[];
 // Global variables:
 string Pairs[];
 double Coefficients[];
+int Pairs_NotFound[]; // 0 - OK, 1 - first failure, 2 - final failure.
+bool AllFound = true;
 
 // Gets pair names and coefficients out of the input parameters and creates the respective arrays.
 int InitializePairs()
@@ -70,7 +72,9 @@ int InitializePairs()
 
     ArrayResize(Pairs, count);
     ArrayResize(Coefficients, count);
-
+    ArrayResize(Pairs_NotFound, count);
+    ArrayInitialize(Pairs_NotFound, 0);
+    
     n = 0;
     coef_n = 0;
     int prev_n = 0, prev_coef_n = 0, return_value = 0;
@@ -84,10 +88,15 @@ int InitializePairs()
         Pairs[i] = StringTrimRight(StringTrimLeft(StringSubstr(IndexPairs, prev_n, n - prev_n)));
         Coefficients[i] = StrToDouble(StringSubstr(IndexCoefficients, prev_coef_n, coef_n - prev_coef_n));
         Print(Pairs[i], ": ", Coefficients[i]);
-        if (!MarketInfo(Pairs[i], MODE_ASK))
+        if (!(bool)SymbolInfoInteger(Pairs[i], SYMBOL_SELECT)) SymbolSelect(Pairs[i], true);
+        if (!SymbolInfoDouble(Pairs[i], SYMBOL_BID))
         {
-            Alert("Please add ", Pairs[i], " to your Market Watch.");
-            return_value = -1;
+            Print(Pairs[i], " not found. Could be a delay while selecting it to Market Watch. Will try again inside OnCalculate().");
+            AllFound = false;
+        }
+        else
+        {
+            Print(Pairs[i], " found.");
         }
         prev_n = n;
         prev_coef_n = coef_n;
@@ -101,18 +110,16 @@ int OnInit()
     if (StringLen(IndexPairs) == 0)
     {
         Alert("Please enter the USDX currency pairs (EUR/USD, USD/JPY, GBP/USD, USD/CAD, USD/CHF and USD/SEK) into IndexPairs input parameter. Use the currency pairs' names as they appear in your market watch.");
-        return INIT_FAILED;
     }
 
     if (StringLen(IndexCoefficients) == 0)
     {
         Alert("Please enter the the Index coefficients as coma-separated values in IndexCoefficients input parameter.");
-        return INIT_FAILED;
     }
 
-    if (AccountCurrency() != "")
+    if (InitializePairs() < 0)
     {
-        if (InitializePairs() < 0) return INIT_FAILED;
+        Print("Couldn't initialize pairs.");
     }
     
     SetIndexBuffer(0, USDX);
@@ -122,7 +129,6 @@ int OnInit()
     SetIndexLabel(1, "MA(" + IntegerToString(MA_Period1) + ")");
     SetIndexEmptyValue(1, 0);
 
-    SetIndexStyle(2, DRAW_LINE);
     SetIndexBuffer(2, MA2);
     SetIndexLabel(2, "MA(" + IntegerToString(MA_Period2) + ")");
     SetIndexEmptyValue(2, 0);
@@ -145,57 +151,63 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
 {
-    // Initialization hasn't been done yet.
-    if (ArraySize(Pairs) == 0)
+    if (!AllFound) // Making sure that the Terminal has all the required currency pairs.
     {
-        if (AccountCurrency() != "")
+        AllFound = true;
+        for (int i = 0; i < ArraySize(Pairs); i++)
         {
-            if (InitializePairs() < 0)
+            if (!SymbolInfoDouble(Pairs[i], SYMBOL_BID))
             {
-                return 0;
+                AllFound = false;
+                if (Pairs_NotFound[i] == 2) return 0; // Cannot calculate if one of the pairs is missing.
+                Pairs_NotFound[i]++;
+                if (Pairs_NotFound[i] == 1) Print(Pairs[i], " not found. Still waiting due to a potential delay while selecting it to Market Watch.");
+                else if (Pairs_NotFound[i] == 2) Alert(Pairs[i], " not found. Please check its naming and whether your broker offers such a pair.");
+            }
+            if ((Pairs_NotFound[i] == 1) && (AllFound)) // If this pair was missing at some point, but is now OK.
+            {
+                Print(Pairs[i], " found.");
             }
         }
-        else
-        {
-            Print("Need to be connected to an account to use this indicator.");
-            return 0;
-        }
     }
+    if (!AllFound) return 0;
 
-    int counted_bars = IndicatorCounted();
+    int counted_bars = prev_calculated;
     if (counted_bars > 0) counted_bars--;
     limit = Bars - counted_bars;
-
     for (int i = 0; i < limit; i++)
     {
         USDX[i] = IndexInitialValue;
         for (int j = 0; j < ArraySize(Pairs); j++)
         {
+            int index = iBarShift(Pairs[j], 0, Time[i], false);
+            if (index < 0) continue;
+            if (iBars(Pairs[j], 0) == 0) return 0; // Chart history not loaded yet.
             switch (USDX_PriceType)
             {
             case PRICE_OPEN:
-                USDX[i] *= MathPow(iOpen(Pairs[j], 0, i), Coefficients[j]);
+                USDX[i] *= MathPow(iOpen(Pairs[j], 0, index), Coefficients[j]);
                 break;
             case PRICE_HIGH:
-                USDX[i] *= MathPow(iHigh(Pairs[j], 0, i), Coefficients[j]);
+                USDX[i] *= MathPow(iHigh(Pairs[j], 0, index), Coefficients[j]);
                 break;
             case PRICE_LOW:
-                USDX[i] *= MathPow(iLow(Pairs[j], 0, i), Coefficients[j]);
+                USDX[i] *= MathPow(iLow(Pairs[j], 0, index), Coefficients[j]);
                 break;
             case PRICE_CLOSE:
-                USDX[i] *= MathPow(iClose(Pairs[j], 0, i), Coefficients[j]);
+                USDX[i] *= MathPow(iClose(Pairs[j], 0, index), Coefficients[j]);
                 break;
             case PRICE_MEDIAN:
-                USDX[i] *= MathPow((iHigh(Pairs[j], 0, i) + iLow(Pairs[j], 0, i)) / 2, Coefficients[j]);
+                USDX[i] *= MathPow((iHigh(Pairs[j], 0, index) + iLow(Pairs[j], 0, index)) / 2, Coefficients[j]);
                 break;
             case PRICE_TYPICAL:
-                USDX[i] *= MathPow((iHigh(Pairs[j], 0, i) + iLow(Pairs[j], 0, i) + iClose(Pairs[j], 0, i)) / 3, Coefficients[j]);
+                USDX[i] *= MathPow((iHigh(Pairs[j], 0, index) + iLow(Pairs[j], 0, index) + iClose(Pairs[j], 0, index)) / 3, Coefficients[j]);
                 break;
             case PRICE_WEIGHTED:
-                USDX[i] *= MathPow((iHigh(Pairs[j], 0, i) + iLow(Pairs[j], 0, i) + iClose(Pairs[j], 0, i) * 2) / 4, Coefficients[j]);
+                USDX[i] *= MathPow((iHigh(Pairs[j], 0, index) + iLow(Pairs[j], 0, index) + iClose(Pairs[j], 0, index) * 2) / 4, Coefficients[j]);
                 break;
             default:
-                USDX[i] *= MathPow(iClose(Pairs[j], 0, i), Coefficients[j]);
+                USDX[i] *= MathPow(iClose(Pairs[j], 0, index), Coefficients[j]);
                 break;
             }
         }
@@ -260,7 +272,7 @@ void CalcSMA(double &MA[], int ma_period)
 }
 
 // Exponential MA Calculation.
-// ma_period is double here because int produces wrong divison results in coeff calculation below.
+// ma_period is double here because int produces wrong division results in coeff calculation below.
 void CalcEMA(double &MA[], double ma_period)
 {
     // From old to new.
@@ -280,7 +292,7 @@ void CalcEMA(double &MA[], double ma_period)
 }
 
 // Smoothed MA Calculation (Exponential with coeff = 1 / N).
-// ma_period is double here because int produces wrong divison results in coeff calculation below.
+// ma_period is double here because int produces wrong division results in coeff calculation below.
 void CalcSMMA(double &MA[], double ma_period)
 {
     // From old to new.
