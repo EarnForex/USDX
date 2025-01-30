@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                                         USDX.mq4 |
-//|                                 Copyright © 2012-2024, EarnForex |
+//|                                 Copyright © 2012-2025, EarnForex |
 //|                                        https://www.earnforex.com |
 //+------------------------------------------------------------------+
-#property copyright "www.EarnForex.com, 2012-2024"
+#property copyright "www.EarnForex.com, 2012-2025"
 #property link      "https://www.earnforex.com/metatrader-indicators/USDX/"
-#property version   "1.03"
+#property version   "1.04"
 #property strict
 
 #property description "USDX - indicator of the US Dollar Index."
@@ -125,13 +125,19 @@ int OnInit()
     SetIndexBuffer(0, USDX);
     SetIndexEmptyValue(0, EMPTY_VALUE);
 
-    SetIndexBuffer(1, MA1);
-    SetIndexLabel(1, "MA(" + IntegerToString(MA_Period1) + ")");
-    SetIndexEmptyValue(1, 0);
+    if (MA_Period1 > 0)
+    {
+        SetIndexBuffer(1, MA1);
+        SetIndexLabel(1, "MA(" + IntegerToString(MA_Period1) + ")");
+        SetIndexEmptyValue(1, 0);
+    } else SetIndexStyle(1, DRAW_NONE);
 
-    SetIndexBuffer(2, MA2);
-    SetIndexLabel(2, "MA(" + IntegerToString(MA_Period2) + ")");
-    SetIndexEmptyValue(2, 0);
+    if (MA_Period2 > 0)
+    {
+        SetIndexBuffer(2, MA2);
+        SetIndexLabel(2, "MA(" + IntegerToString(MA_Period2) + ")");
+        SetIndexEmptyValue(2, 0);
+    } else SetIndexStyle(2, DRAW_NONE);
 
     IndicatorShortName("USDX");
 

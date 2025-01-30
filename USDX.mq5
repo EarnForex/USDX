@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                                   USDX Indicator |
-//|                                 Copyright © 2012-2024, EarnForex |
+//|                                 Copyright © 2012-2025, EarnForex |
 //|                                        https://www.earnforex.com |
 //+------------------------------------------------------------------+
-#property copyright "www.EarnForex.com, 2012-2024"
+#property copyright "www.EarnForex.com, 2012-2025"
 #property link      "https://www.earnforex.com/metatrader-indicators/USDX/"
-#property version   "1.03"
+#property version   "1.04"
 
 #property description "USDX - indicator of the US Dollar Index."
 #property description "Displays a USDX chart in a separate window of the current chart."
@@ -153,18 +153,26 @@ int OnInit()
     SetIndexBuffer(2, Low, INDICATOR_DATA);
     SetIndexBuffer(3, Close, INDICATOR_DATA);
     SetIndexBuffer(4, Color, INDICATOR_COLOR_INDEX);
-    if (MA_Period1 > 0) SetIndexBuffer(5, MA1, INDICATOR_DATA);
-    if (MA_Period2 > 0) SetIndexBuffer(6, MA2, INDICATOR_DATA);
-
+    if (MA_Period1 > 0)
+    {
+        SetIndexBuffer(5, MA1, INDICATOR_DATA);
+        PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+        PlotIndexSetString(1, PLOT_LABEL, "MA(" + IntegerToString(MA_Period1) + ")");
+        PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_LINE);
+    }
+    else PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_NONE);
+    if (MA_Period2 > 0)
+    {
+        SetIndexBuffer(6, MA2, INDICATOR_DATA);
+        PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+        PlotIndexSetString(2, PLOT_LABEL, "MA(" + IntegerToString(MA_Period2) + ")");
+        PlotIndexSetInteger(2, PLOT_DRAW_TYPE, DRAW_LINE);
+    } else PlotIndexSetInteger(2, PLOT_DRAW_TYPE, DRAW_NONE);
+    
     IndicatorSetInteger(INDICATOR_DIGITS, 4);
     IndicatorSetString(INDICATOR_SHORTNAME, "USDX");
 
     PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
-    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
-    PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, EMPTY_VALUE);
-
-    PlotIndexSetString(1, PLOT_LABEL, "MA(" + IntegerToString(MA_Period1) + ")");
-    PlotIndexSetString(2, PLOT_LABEL, "MA(" + IntegerToString(MA_Period2) + ")");
 
     return INIT_SUCCEEDED;
 }
@@ -201,6 +209,20 @@ int OnCalculate(const int rates_total,
     }
     RatesTotal = rates_total;
 
+    // Clear all data for the first run or when one of the currency pairs fails to load.
+    if (prev_calculated == 0)
+    {
+        for (int i = 0; i < rates_total; i++)
+        {
+            Open[i] = EMPTY_VALUE;
+            High[i] = EMPTY_VALUE;
+            Low[i] = EMPTY_VALUE;
+            Close[i] = EMPTY_VALUE;
+            if (MA_Period1 > 0) MA1[i] = EMPTY_VALUE;
+            if (MA_Period2 > 0) MA2[i] = EMPTY_VALUE;
+        }
+    }
+
     int pairs_count = ArraySize(Pairs);
     int NewLastBars = -1;
 
@@ -213,6 +235,9 @@ int OnCalculate(const int rates_total,
         if ((ArraySize(PairData[i].Time) == 0) || (ArraySize(PairData[i].Open) == 0) || (ArraySize(PairData[i].High) == 0) || (ArraySize(PairData[i].Low) == 0) || (ArraySize(PairData[i].Close) == 0))
         {
             Print(Pairs[i], " failed to load. T:", ArraySize(PairData[i].Time), " O:", ArraySize(PairData[i].Open), " H:", ArraySize(PairData[i].High), " L:", ArraySize(PairData[i].Low), " C:", ArraySize(PairData[i].Close));
+            // Reset for all pairs because everything has to be re-calculated.
+            ArrayInitialize(PairsLastBars, 0);
+            LastBars = 0;
             return prev_calculated;
         }
 
@@ -233,6 +258,9 @@ int OnCalculate(const int rates_total,
             {
                 // Assign EV to the new bars without equivalent on index currency pairs
                 Open[j] = EMPTY_VALUE;
+                High[j] = EMPTY_VALUE;
+                Low[j] = EMPTY_VALUE;
+                Close[j] = EMPTY_VALUE;
                 continue;
             }
             // Initialize indicator with IndexInitialValue (50.14348112 for USDX) on first currency pair (to multiply everything with it)
@@ -283,7 +311,13 @@ int OnCalculate(const int rates_total,
                     break;
                 }
                 // If got to the last element without finding, the bar is missing.
-                else if (n == 0) Open[j] = EMPTY_VALUE;
+                else if (n == 0)
+                {
+                    Open[j] = EMPTY_VALUE;
+                    High[j] = EMPTY_VALUE;
+                    Low[j] = EMPTY_VALUE;
+                    Close[j] = EMPTY_VALUE;
+                }
             }
         }
         // Finally updating LastBars if got to the last bar of the last currency pair inside the cycle.
@@ -306,6 +340,8 @@ void UpdateArrays(int n)
     ArrayFree(PairData[n].Time);
 
     int NewBars = Bars(Pairs[n], _Period);
+    // The number of requested bars (at its peak) should be the same for all pairs:
+    if (NewBars < PairsLastBars[ArrayMaximum(PairsLastBars)]) NewBars = PairsLastBars[ArrayMaximum(PairsLastBars)];
 
     int to_copy = NewBars - PairsLastBars[n];
     if (to_copy < 2) to_copy = 2; // At least 2 bars.
