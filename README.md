@@ -6,6 +6,6 @@ The MT4 version displays the indicator as a line (you choose which price type to
 
 ![USDX indicator calculated over daily timeframe and contrasted with the GBP/USD chart](https://github.com/EarnForex/USDX/blob/main/README_Images/usdx-candlesticks-gbpusd-daily.png)
 
-More information about this custom MetaTrader indicator is available here: https://www.earnforex.com/metatrader-indicators/USDX/
+More information about this custom MetaTrader indicator is available here: https://www.earnforex.com/indicators/USDX/
 
 Any contributions to the code are welcome!
